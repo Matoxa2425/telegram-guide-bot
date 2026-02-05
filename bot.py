@@ -16,11 +16,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ===== ПРОСТОЙ СЧЕТЧИК В ФАЙЛЕ =====
+# ===== СЧЕТЧИК В ФАЙЛЕ =====
+COUNTER_FILE = "counter.txt"
+
 def get_counter() -> int:
     """Получить текущее значение счетчика"""
     try:
-        with open("counter.txt", "r") as f:
+        with open(COUNTER_FILE, "r") as f:
             return int(f.read().strip())
     except (FileNotFoundError, ValueError):
         return 0
@@ -28,7 +30,7 @@ def get_counter() -> int:
 def increment_counter() -> int:
     """Увеличить счетчик на 1"""
     count = get_counter() + 1
-    with open("counter.txt", "w") as f:
+    with open(COUNTER_FILE, "w") as f:
         f.write(str(count))
     logger.info(f"📥 СКАЧИВАНИЕ #{count}")
     return count
@@ -48,8 +50,7 @@ async def check_subscription(user_id: int, context: ContextTypes.DEFAULT_TYPE) -
         ]
     except Exception as e:
         logger.error(f"Ошибка проверки подписки: {e}")
-        # В случае ошибки лучше разрешить скачивание
-        return True
+        return True  # В случае ошибки разрешаем скачивание
 
 # ===== КОМАНДЫ =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -98,12 +99,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
             except FileNotFoundError:
                 await query.edit_message_text(
-                    "❌ Файл с гайдом не найден на сервере.\nАдминистратор уведомлен.",
+                    "❌ Файл с гайдом не найден.\nАдминистратор уведомлен.",
                     reply_markup=InlineKeyboardMarkup([[
                         InlineKeyboardButton("📱 Написать админу", url="https://t.me/matoxa2425")
                     ]])
                 )
-                logger.error("Файл guide.pdf не найден!")
+                logger.error(f"Файл {GUIDE_FILE} не найден!")
         else:
             # Не подписан
             keyboard = [
@@ -111,7 +112,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton("✅ Я подписался", callback_data='check')]
             ]
             await query.edit_message_text(
-                text="❌ Вы не подписаны на канал!\n\n1. Нажмите кнопку 'Подписаться на канал'\n2. Вернитесь и нажмите 'Я подписался'",
+                text="❌ Вы не подписаны на канал!\n\n1. Нажмите 'Подписаться на канал'\n2. Вернитесь и нажмите 'Я подписался'",
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
     
@@ -138,37 +139,37 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"📊 Статистика бота @Mzhdnami_bot\n\n"
         f"Всего скачиваний гайда: {count}\n"
-        f"Сервер: VPS 80.93.60.35\n"
+        f"Сервер: VPS (Ubuntu)\n"
+        f"Python: 3.12.3\n"
         f"Статус: ✅ Работает"
     )
 
 # ===== ЗАПУСК =====
 def main():
     """Запуск бота"""
-    # Проверяем токен
     if not BOT_TOKEN:
-        logger.error("❌ BOT_TOKEN не установлен! Добавь его в .env файл")
+        logger.error("❌ BOT_TOKEN не установлен! Создай файл .env с BOT_TOKEN=твой_токен")
         return
     
-    # Проверяем наличие файла гайда
     if not os.path.exists(GUIDE_FILE):
         logger.warning(f"⚠️ Файл {GUIDE_FILE} не найден. Загрузи его на сервер.")
     
     # Создаем приложение
-    app = Application.builder().token(BOT_TOKEN).build()
+    application = Application.builder().token(BOT_TOKEN).build()
     
     # Добавляем обработчики
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("stats", stats))
-    app.add_handler(CallbackQueryHandler(button_handler))
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("stats", stats))
+    application.add_handler(CallbackQueryHandler(button_handler))
     
     # Запускаем бота
     logger.info("🤖 Запускаю бота...")
     logger.info(f"📊 Текущий счетчик: {get_counter()}")
-    logger.info(f"📢 Канал для проверки: {CHANNEL_USERNAME}")
+    logger.info(f"📢 Канал: {CHANNEL_USERNAME}")
+    logger.info(f"🐍 Python: {os.sys.version}")
     
-    # Используем polling (проще чем webhook)
-    app.run_polling()
+    # Используем polling
+    application.run_polling()
 
 if __name__ == '__main__':
     main()
