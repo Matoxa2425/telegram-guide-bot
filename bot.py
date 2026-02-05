@@ -8,40 +8,54 @@ from telegram.constants import ChatMemberStatus
 BOT_TOKEN = os.environ.get("BOT_TOKEN")  # Будет задан в Render
 CHANNEL_USERNAME = "@mzhdnami"  # Твой канал
 GUIDE_FILE = "guide.pdf"  # Имя файла гайда
-# COUNTER_FILE больше не нужен
 
 # Настройка логирования
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ===== СЧЕТЧИК В ПЕРЕМЕННЫХ ОКРУЖЕНИЯ =====
+# ===== БАЗА ДАННЫХ (Replit DB) =====
+# Импортируем только если есть replit (будет на Replit, но не на Render)
+try:
+    from replit import db
+    HAS_DB = True
+    logger.info("Replit Database доступна")
+except ImportError:
+    HAS_DB = False
+    logger.warning("Replit Database недоступна (работаем локально или на Render)")
+
+# ===== СЧЕТЧИК =====
 def get_counter():
     """Получить текущее значение счетчика"""
-    try:
-        # Пытаемся получить из переменной окружения
-        count_str = os.environ.get("DOWNLOAD_COUNTER", "0")
-        return int(count_str)
-    except ValueError:
-        return 0
+    if HAS_DB:
+        # Пробуем получить из Replit DB
+        try:
+            return db.get("download_counter", 0)
+        except:
+            return 0
+    else:
+        # Fallback: переменная окружения или файл
+        try:
+            return int(os.environ.get("DOWNLOAD_COUNTER", "0"))
+        except:
+            return 0
 
 def increment_counter():
-    """Увеличить счетчик на 1"""
-    count = get_counter() + 1
+    """Увеличить счетчик на 1 и сохранить"""
+    current = get_counter()
+    new_count = current + 1
     
-    # В Render на Free плане нельзя ПЕРЕЗАПИСЫВАТЬ переменные окружения через код
-    # Но мы можем логировать и использовать временное хранение
+    if HAS_DB:
+        # Сохраняем в Replit DB
+        try:
+            db["download_counter"] = new_count
+            logger.info(f"Счетчик сохранен в Replit DB: {new_count}")
+        except Exception as e:
+            logger.error(f"Ошибка сохранения в Replit DB: {e}")
+    else:
+        # Fallback: логируем и используем переменную окружения
+        logger.info(f"=== СКАЧИВАНИЕ #{new_count} ===")
     
-    # Логируем в консоль (видно в логах Render)
-    logger.info(f"=== СКАЧИВАНИЕ #{count} ===")
-    
-    # Сохраняем в файл как резерв (хотя он будет сбрасываться)
-    try:
-        with open("last_counter.txt", "w") as f:
-            f.write(str(count))
-    except:
-        pass
-        
-    return count
+    return new_count
 
 # ===== ПРОВЕРКА ПОДПИСКИ =====
 async def check_subscription(user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
@@ -96,17 +110,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 # Обновляем счетчик
                 count = increment_counter()
                 
-                # Получаем начальное значение из переменной окружения
-                base_count = get_counter()
-                total_count = base_count + (count - base_count)  # Простая математика
-                
                 await query.edit_message_text(
-                    text=f"🎉 Гайд отправлен в личные сообщения!\n\n📊 Скачано раз: {total_count}",
+                    text=f"🎉 Гайд отправлен в личные сообщения!\n\n📊 Скачано раз: {count}",
                     reply_markup=InlineKeyboardMarkup([[
                         InlineKeyboardButton("💎 Перейти в канал", url="https://t.me/mzhdnami")
                     ]])
                 )
-                logger.info(f"User {user_id} downloaded. Total: {total_count}")
+                logger.info(f"User {user_id} downloaded. Total: {count}")
                 
             except FileNotFoundError:
                 await query.edit_message_text("❌ Файл временно недоступен. Админ уже уведомлен!")
@@ -134,7 +144,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда /stats для админа"""
-    ADMIN_ID = 123456789  # ПОТОМ ЗАМЕНИШЬ на свой ID (узнай у @userinfobot)
+    ADMIN_ID = 123456789  # ЗАМЕНИ НА СВОЙ ID (узнай у @userinfobot)
     
     if update.effective_user.id != ADMIN_ID:
         await update.message.reply_text("🚫 Эта команда только для администратора")
@@ -143,8 +153,9 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     count = get_counter()
     await update.message.reply_text(
         f"📊 Статистика бота @Mzhdnami_bot\n\n"
-        f"Всего скачиваний: {count}\n\n"
-        f"Проверить логи можно в панели Render"
+        f"Всего скачиваний: {count}\n"
+        f"ID администратора: {ADMIN_ID}\n"
+        f"Используется {'Replit DB' if HAS_DB else 'локальное хранилище'}"
     )
 
 # ===== ЗАПУСК =====
@@ -171,10 +182,10 @@ def main():
             url_path=BOT_TOKEN,
             webhook_url=webhook_url
         )
-        logger.info(f"Бот запущен на Render. Начальное значение счетчика: {get_counter()}")
+        logger.info(f"Бот запущен на Render. Текущий счетчик: {get_counter()}")
     else:
         app.run_polling()
-        logger.info("Бот запущен локально")
+        logger.info("Бот запущен локально. Текущий счетчик: {get_counter()}")
 
 if __name__ == '__main__':
     main()
