@@ -1,5 +1,10 @@
 import logging
 import os
+# Фикс для imghdr
+try:
+    import imghdr_fix
+except ImportError:
+    pass
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 from telegram.constants import ChatMemberStatus
