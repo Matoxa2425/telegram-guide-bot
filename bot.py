@@ -3,7 +3,7 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.utils import executor
 
 API_TOKEN = "8453426857:AAFp-0VxpVn6pH0lOAETDys1-ag3MizbssI"
-CHANNEL_ID = "@mezhdunami_bot"
+CHANNEL_ID = "@@Mzhdnami_bot"
 PDF_FILE = "pet_guide.pdf"
 
 bot = Bot(token=API_TOKEN)
