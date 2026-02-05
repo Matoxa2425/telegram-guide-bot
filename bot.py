@@ -144,7 +144,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда /stats для админа"""
-    ADMIN_ID = 123456789  # ЗАМЕНИ НА СВОЙ ID (узнай у @userinfobot)
+    ADMIN_ID = 395925643  # ЗАМЕНИ НА СВОЙ ID (узнай у @userinfobot)
     
     if update.effective_user.id != ADMIN_ID:
         await update.message.reply_text("🚫 Эта команда только для администратора")
