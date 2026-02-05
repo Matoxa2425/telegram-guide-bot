@@ -5,7 +5,7 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Cont
 from telegram.constants import ChatMemberStatus
 
 # ===== НАСТРОЙКИ =====
-BOT_TOKEN = os.environ.get("BOT_TOKEN")  # Будет задан в Render
+BOT_TOKEN = os.environ.get("BOT_TOKEN")  # Будет задан в Railway
 CHANNEL_USERNAME = "@mzhdnami"  # Твой канал
 GUIDE_FILE = "guide.pdf"  # Имя файла гайда
 
@@ -13,49 +13,28 @@ GUIDE_FILE = "guide.pdf"  # Имя файла гайда
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ===== БАЗА ДАННЫХ (Replit DB) =====
-# Импортируем только если есть replit (будет на Replit, но не на Render)
-try:
-    from replit import db
-    HAS_DB = True
-    logger.info("Replit Database доступна")
-except ImportError:
-    HAS_DB = False
-    logger.warning("Replit Database недоступна (работаем локально или на Render)")
+# ===== ПРОСТОЙ СЧЕТЧИК =====
+download_counter = 0
 
-# ===== СЧЕТЧИК =====
 def get_counter():
     """Получить текущее значение счетчика"""
-    if HAS_DB:
-        # Пробуем получить из Replit DB
-        try:
-            return db.get("download_counter", 0)
-        except:
-            return 0
-    else:
-        # Fallback: переменная окружения или файл
-        try:
-            return int(os.environ.get("DOWNLOAD_COUNTER", "0"))
-        except:
-            return 0
+    global download_counter
+    try:
+        # Пробуем получить из переменной окружения
+        env_count = os.environ.get("DOWNLOAD_COUNTER")
+        if env_count:
+            download_counter = int(env_count)
+    except:
+        pass
+    return download_counter
 
 def increment_counter():
-    """Увеличить счетчик на 1 и сохранить"""
-    current = get_counter()
-    new_count = current + 1
-    
-    if HAS_DB:
-        # Сохраняем в Replit DB
-        try:
-            db["download_counter"] = new_count
-            logger.info(f"Счетчик сохранен в Replit DB: {new_count}")
-        except Exception as e:
-            logger.error(f"Ошибка сохранения в Replit DB: {e}")
-    else:
-        # Fallback: логируем и используем переменную окружения
-        logger.info(f"=== СКАЧИВАНИЕ #{new_count} ===")
-    
-    return new_count
+    """Увеличить счетчик на 1"""
+    global download_counter
+    download_counter += 1
+    # Логируем (можно будет видеть в логах Railway)
+    logger.info(f"=== СКАЧИВАНИЕ #{download_counter} ===")
+    return download_counter
 
 # ===== ПРОВЕРКА ПОДПИСКИ =====
 async def check_subscription(user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
@@ -144,7 +123,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда /stats для админа"""
-    ADMIN_ID = 395925643  # ЗАМЕНИ НА СВОЙ ID (узнай у @userinfobot)
+    ADMIN_ID = 395925643  # Это твой ID Angelina
     
     if update.effective_user.id != ADMIN_ID:
         await update.message.reply_text("🚫 Эта команда только для администратора")
@@ -153,9 +132,8 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     count = get_counter()
     await update.message.reply_text(
         f"📊 Статистика бота @Mzhdnami_bot\n\n"
-        f"Всего скачиваний: {count}\n"
-        f"ID администратора: {ADMIN_ID}\n"
-        f"Используется {'Replit DB' if HAS_DB else 'локальное хранилище'}"
+        f"Всего скачиваний: {count}\n\n"
+        f"Для просмотра детальных логов зайди в панель Railway"
     )
 
 # ===== ЗАПУСК =====
@@ -171,21 +149,19 @@ def main():
     app.add_handler(CommandHandler("stats", stats))
     app.add_handler(CallbackQueryHandler(button_handler))
     
-    PORT = int(os.environ.get('PORT', 8443))
-    RENDER_HOST = os.environ.get('RENDER_EXTERNAL_HOSTNAME')
+    # Railway использует порт из переменной окружения PORT
+    PORT = int(os.environ.get('PORT', 8000))
     
-    if RENDER_HOST:
-        webhook_url = f'https://{RENDER_HOST}/{BOT_TOKEN}'
-        app.run_webhook(
-            listen="0.0.0.0",
-            port=PORT,
-            url_path=BOT_TOKEN,
-            webhook_url=webhook_url
-        )
-        logger.info(f"Бот запущен на Render. Текущий счетчик: {get_counter()}")
-    else:
+    # Проверяем, запускаем ли мы на Railway (есть ли переменная RAILWAY_STATIC_URL)
+    if os.environ.get('RAILWAY_STATIC_URL') or os.environ.get('RAILWAY_ENVIRONMENT'):
+        # На Railway используем polling вместо webhook (проще)
+        logger.info("🚂 Бот запущен на Railway (polling mode)")
+        logger.info(f"Текущий счетчик: {get_counter()}")
         app.run_polling()
-        logger.info("Бот запущен локально. Текущий счетчик: {get_counter()}")
+    else:
+        # Для других хостингов или локально
+        app.run_polling()
+        logger.info("🤖 Бот запущен локально (polling mode)")
 
 if __name__ == '__main__':
     main()
