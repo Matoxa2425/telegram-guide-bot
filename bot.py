@@ -1,73 +1,156 @@
-import sqlite3
-from aiogram import Bot, Dispatcher, types
-from aiogram.utils import executor
+import logging
+import os
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram.constants import ChatMemberStatus
 
-API_TOKEN = "8453426857:AAFp-0VxpVn6pH0lOAETDys1-ag3MizbssI"
-CHANNEL_ID = "@@Mzhdnami_bot"
-PDF_FILE = "pet_guide.pdf"
+# ===== НАСТРОЙКИ =====
+BOT_TOKEN = os.environ.get("BOT_TOKEN")  # Будет задан в Render
+CHANNEL_USERNAME = "@mzhdnami"  # Твой канал
+GUIDE_FILE = "guide.pdf"  # Имя файла гайда
+COUNTER_FILE = "counter.txt"
 
-bot = Bot(token=API_TOKEN)
-dp = Dispatcher(bot)
+# Настройка логирования
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# --- база данных ---
-conn = sqlite3.connect("database.db")
-cursor = conn.cursor()
+# ===== СЧЕТЧИК =====
+def get_counter():
+    try:
+        with open(COUNTER_FILE, 'r') as f:
+            return int(f.read().strip())
+    except:
+        return 0
 
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS users (
-    user_id INTEGER PRIMARY KEY,
-    downloaded INTEGER DEFAULT 0
-)
-""")
-conn.commit()
+def increment_counter():
+    count = get_counter() + 1
+    with open(COUNTER_FILE, 'w') as f:
+        f.write(str(count))
+    return count
 
-# --- проверка подписки ---
-async def check_subscription(user_id):
-    member = await bot.get_chat_member(CHANNEL_ID, user_id)
-    return member.status in ["member", "creator", "administrator"]
+# ===== ПРОВЕРКА ПОДПИСКИ =====
+async def check_subscription(user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    try:
+        member = await context.bot.get_chat_member(
+            chat_id=CHANNEL_USERNAME, 
+            user_id=user_id
+        )
+        return member.status in [
+            ChatMemberStatus.MEMBER, 
+            ChatMemberStatus.ADMINISTRATOR, 
+            ChatMemberStatus.OWNER
+        ]
+    except Exception as e:
+        logger.error(f"Ошибка проверки подписки: {e}")
+        return False
 
-# --- старт ---
-@dp.message_handler(commands=['start'])
-async def start(message: types.Message):
-    subscribed = await check_subscription(message.from_user.id)
+# ===== КОМАНДЫ =====
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /start"""
+    user = update.effective_user
+    keyboard = [[InlineKeyboardButton("📥 Скачать гайд", callback_data='download')]]
+    
+    text = f"""Привет, {user.first_name}! 👋
 
-    if not subscribed:
-        kb = types.InlineKeyboardMarkup()
-        kb.add(types.InlineKeyboardButton("Подписаться", url="https://t.me/mezhdunami_bot"))
-        kb.add(types.InlineKeyboardButton("Проверить подписку", callback_data="check_sub"))
-        await message.answer("Сначала подпишись на канал 👇", reply_markup=kb)
+Я бот канала MZHDNAM! 📺
+Здесь ты можешь получить полезный гайд.
+
+✅ Для скачивания нужно быть подписанным на канал: {CHANNEL_USERNAME}
+
+Нажми кнопку ниже👇"""
+    
+    await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработка нажатий кнопок"""
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    
+    if query.data == 'download':
+        if await check_subscription(user_id, context):
+            try:
+                # Отправляем файл
+                with open(GUIDE_FILE, 'rb') as f:
+                    await context.bot.send_document(
+                        chat_id=user_id,
+                        document=f,
+                        caption="✅ Гайд от MZHDNAM!\n\nДелитесь каналом с друзьями! 👉 @mzhdnami"
+                    )
+                
+                # Обновляем счетчик
+                count = increment_counter()
+                await query.edit_message_text(
+                    text=f"🎉 Гайд отправлен в личные сообщения!\n\n📊 Скачано раз: {count}",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("💎 Перейти в канал", url="https://t.me/mzhdnami")
+                    ]])
+                )
+                logger.info(f"User {user_id} downloaded. Total: {count}")
+                
+            except FileNotFoundError:
+                await query.edit_message_text("❌ Файл временно недоступен. Админ уже уведомлен!")
+        else:
+            # Не подписан
+            keyboard = [
+                [InlineKeyboardButton("📢 Подписаться на канал", url="https://t.me/mzhdnami")],
+                [InlineKeyboardButton("✅ Я подписался", callback_data='check')]
+            ]
+            await query.edit_message_text(
+                text="❌ Вы не подписаны на канал!\n\n1. Нажмите кнопку 'Подписаться на канал'\n2. Вернитесь и нажмите 'Я подписался'",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+    
+    elif query.data == 'check':
+        if await check_subscription(user_id, context):
+            await query.edit_message_text(
+                text="✅ Отлично! Теперь нажмите кнопку ниже для скачивания:",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("📥 Скачать гайд", callback_data='download')
+                ]])
+            )
+        else:
+            await query.answer("Вы еще не подписались. Подпишитесь и попробуйте снова.", show_alert=True)
+
+async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /stats для админа"""
+    ADMIN_ID = 123456789  # ПОТОМ ЗАМЕНИШЬ на свой ID
+    
+    if update.effective_user.id != ADMIN_ID:
+        await update.message.reply_text("🚫 Эта команда только для администратора")
         return
+    
+    count = get_counter()
+    await update.message.reply_text(f"📊 Статистика бота @Mzhdnami_bot\n\nВсего скачиваний гайда: {count}")
 
-    await send_guide(message.from_user.id)
-
-# --- кнопка проверки ---
-@dp.callback_query_handler(lambda c: c.data == "check_sub")
-async def check_sub(callback_query: types.CallbackQuery):
-    subscribed = await check_subscription(callback_query.from_user.id)
-
-    if subscribed:
-        await send_guide(callback_query.from_user.id)
+# ===== ЗАПУСК =====
+def main():
+    """Запуск бота"""
+    if not BOT_TOKEN:
+        logger.error("BOT_TOKEN не установлен!")
+        return
+    
+    app = Application.builder().token(BOT_TOKEN).build()
+    
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("stats", stats))
+    app.add_handler(CallbackQueryHandler(button_handler))
+    
+    PORT = int(os.environ.get('PORT', 8443))
+    RENDER_HOST = os.environ.get('RENDER_EXTERNAL_HOSTNAME')
+    
+    if RENDER_HOST:
+        webhook_url = f'https://{RENDER_HOST}/{BOT_TOKEN}'
+        app.run_webhook(
+            listen="0.0.0.0",
+            port=PORT,
+            url_path=BOT_TOKEN,
+            webhook_url=webhook_url
+        )
+        logger.info(f"Бот запущен на Render: {webhook_url}")
     else:
-        await bot.answer_callback_query(callback_query.id, "Ты ещё не подписан")
+        app.run_polling()
+        logger.info("Бот запущен локально")
 
-# --- отправка гайда + счётчик ---
-async def send_guide(user_id):
-    cursor.execute("SELECT downloaded FROM users WHERE user_id = ?", (user_id,))
-    result = cursor.fetchone()
-
-    if result is None:
-        cursor.execute("INSERT INTO users (user_id, downloaded) VALUES (?, 1)", (user_id,))
-        conn.commit()
-
-        # новый пользователь — увеличиваем счётчик
-        await bot.send_document(user_id, open(PDF_FILE, "rb"))
-        await bot.send_message(user_id, "Вот твой гайд 🐾")
-    else:
-        # уже скачивал — просто даём снова без увеличения счётчика
-        await bot.send_document(user_id, open(PDF_FILE, "rb"))
-        await bot.send_message(user_id, "Ты уже получал гайд, отправляю ещё раз")
-
-# --- запуск ---
-if __name__ == "__main__":
-    executor.start_polling(dp, skip_updates=True)
-
+if __name__ == '__main__':
+    main()
